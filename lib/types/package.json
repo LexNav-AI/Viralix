@@ -1,0 +1,15 @@
+{
+  "name": "@viralix/types",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "catalog:",
+    "@types/node": "catalog:"
+  },
+  "exports": {
+    ".": "./index.ts"
+  }
+}

@@ -1,0 +1,136 @@
+{
+  "family": "viralix-video",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["EC2"],
+  "cpu": "16384",
+  "memory": "40960",
+  "executionRoleArn": "arn:aws:iam::ACCOUNT_ID:role/ecsTaskExecutionRole",
+  "taskRoleArn": "arn:aws:iam::ACCOUNT_ID:role/ecsTaskRole",
+  "volumes": [
+    {
+      "name": "models-efs",
+      "efsVolumeConfiguration": {
+        "fileSystemId": "fs-PLACEHOLDER",
+        "rootDirectory": "/",
+        "transitEncryption": "ENABLED",
+        "authorizationConfig": {
+          "accessPointId": "fsap-PLACEHOLDER",
+          "iam": "ENABLED"
+        }
+      }
+    },
+    {
+      "name": "outputs-efs",
+      "efsVolumeConfiguration": {
+        "fileSystemId": "fs-PLACEHOLDER-OUTPUTS",
+        "rootDirectory": "/",
+        "transitEncryption": "ENABLED"
+      }
+    }
+  ],
+  "containerDefinitions": [
+    {
+      "name": "viralix-cogvideo",
+      "image": "${ECR_REGISTRY}/viralix-cogvideo:latest",
+      "essential": true,
+      "portMappings": [
+        {
+          "containerPort": 8102,
+          "hostPort": 8102,
+          "protocol": "tcp"
+        }
+      ],
+      "environment": [
+        { "name": "COGVIDEO_MODEL", "value": "THUDM/CogVideoX-5b" },
+        { "name": "OUTPUTS_DIR",    "value": "/outputs" }
+      ],
+      "mountPoints": [
+        {
+          "sourceVolume": "models-efs",
+          "containerPath": "/models",
+          "readOnly": true
+        },
+        {
+          "sourceVolume": "outputs-efs",
+          "containerPath": "/outputs",
+          "readOnly": false
+        }
+      ],
+      "resourceRequirements": [
+        {
+          "type": "GPU",
+          "value": "1"
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/viralix-video",
+          "awslogs-region": "us-east-1",
+          "awslogs-stream-prefix": "cogvideo"
+        }
+      },
+      "healthCheck": {
+        "command": ["CMD-SHELL", "curl -f http://localhost:8102/health || exit 1"],
+        "interval": 60,
+        "timeout": 15,
+        "retries": 3,
+        "startPeriod": 360
+      },
+      "ulimits": [
+        { "name": "memlock", "softLimit": -1, "hardLimit": -1 }
+      ],
+      "stopTimeout": 60
+    },
+    {
+      "name": "viralix-animatediff",
+      "image": "${ECR_REGISTRY}/viralix-animatediff:latest",
+      "essential": false,
+      "portMappings": [
+        {
+          "containerPort": 8103,
+          "hostPort": 8103,
+          "protocol": "tcp"
+        }
+      ],
+      "environment": [
+        { "name": "MOTION_ADAPTER_ID", "value": "guoyww/animatediff-motion-adapter-v1-5-2" },
+        { "name": "OUTPUTS_DIR",       "value": "/outputs" }
+      ],
+      "mountPoints": [
+        {
+          "sourceVolume": "models-efs",
+          "containerPath": "/models",
+          "readOnly": true
+        },
+        {
+          "sourceVolume": "outputs-efs",
+          "containerPath": "/outputs",
+          "readOnly": false
+        }
+      ],
+      "resourceRequirements": [
+        {
+          "type": "GPU",
+          "value": "1"
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/viralix-video",
+          "awslogs-region": "us-east-1",
+          "awslogs-stream-prefix": "animatediff"
+        }
+      },
+      "healthCheck": {
+        "command": ["CMD-SHELL", "curl -f http://localhost:8103/health || exit 1"],
+        "interval": 60,
+        "timeout": 15,
+        "retries": 3,
+        "startPeriod": 300
+      },
+      "stopTimeout": 60
+    }
+  ]
+}

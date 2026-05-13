@@ -1,0 +1,25 @@
+{
+  "name": "@viralix/db",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "generate": "drizzle-kit generate",
+    "migrate": "tsx migrate.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "drizzle-orm": "catalog:",
+    "pg": "^8.13.3",
+    "@types/pg": "^8.11.10"
+  },
+  "devDependencies": {
+    "drizzle-kit": "^0.31.1",
+    "typescript": "catalog:",
+    "tsx": "catalog:",
+    "@types/node": "catalog:"
+  },
+  "exports": {
+    ".": "./schema.ts",
+    "./migrate": "./migrate.ts"
+  }
+}

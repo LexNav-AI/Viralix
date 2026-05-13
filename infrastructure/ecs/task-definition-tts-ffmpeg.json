@@ -1,0 +1,101 @@
+{
+  "family": "viralix-tts-ffmpeg",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "4096",
+  "memory": "4096",
+  "executionRoleArn": "arn:aws:iam::ACCOUNT_ID:role/ecsTaskExecutionRole",
+  "taskRoleArn": "arn:aws:iam::ACCOUNT_ID:role/ecsTaskRole",
+  "volumes": [
+    {
+      "name": "outputs-efs",
+      "efsVolumeConfiguration": {
+        "fileSystemId": "fs-PLACEHOLDER-OUTPUTS",
+        "rootDirectory": "/",
+        "transitEncryption": "ENABLED"
+      }
+    }
+  ],
+  "containerDefinitions": [
+    {
+      "name": "viralix-kokoro-tts",
+      "image": "${ECR_REGISTRY}/viralix-kokoro-tts:latest",
+      "essential": true,
+      "portMappings": [
+        {
+          "containerPort": 8104,
+          "hostPort": 8104,
+          "protocol": "tcp"
+        }
+      ],
+      "environment": [
+        { "name": "OUTPUTS_DIR",   "value": "/outputs" },
+        { "name": "SAMPLE_RATE",   "value": "24000" },
+        { "name": "MAX_CHUNK_CHARS", "value": "500" }
+      ],
+      "mountPoints": [
+        {
+          "sourceVolume": "outputs-efs",
+          "containerPath": "/outputs",
+          "readOnly": false
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/viralix-tts-ffmpeg",
+          "awslogs-region": "us-east-1",
+          "awslogs-stream-prefix": "kokoro-tts"
+        }
+      },
+      "healthCheck": {
+        "command": ["CMD-SHELL", "curl -f http://localhost:8104/health || exit 1"],
+        "interval": 30,
+        "timeout": 10,
+        "retries": 3,
+        "startPeriod": 60
+      },
+      "stopTimeout": 30
+    },
+    {
+      "name": "viralix-ffmpeg",
+      "image": "${ECR_REGISTRY}/viralix-ffmpeg-worker:latest",
+      "essential": true,
+      "portMappings": [
+        {
+          "containerPort": 8105,
+          "hostPort": 8105,
+          "protocol": "tcp"
+        }
+      ],
+      "environment": [
+        { "name": "OUTPUTS_DIR",        "value": "/outputs" },
+        { "name": "FFMPEG_BIN",         "value": "ffmpeg" },
+        { "name": "DOWNLOAD_TIMEOUT",   "value": "60" }
+      ],
+      "mountPoints": [
+        {
+          "sourceVolume": "outputs-efs",
+          "containerPath": "/outputs",
+          "readOnly": false
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/viralix-tts-ffmpeg",
+          "awslogs-region": "us-east-1",
+          "awslogs-stream-prefix": "ffmpeg-worker"
+        }
+      },
+      "healthCheck": {
+        "command": ["CMD-SHELL", "curl -f http://localhost:8105/health || exit 1"],
+        "interval": 30,
+        "timeout": 10,
+        "retries": 3,
+        "startPeriod": 30
+      },
+      "stopTimeout": 30
+    }
+  ]
+}

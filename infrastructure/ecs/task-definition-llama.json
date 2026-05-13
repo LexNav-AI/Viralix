@@ -1,0 +1,91 @@
+{
+  "family": "viralix-llama",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["EC2"],
+  "cpu": "8192",
+  "memory": "32768",
+  "executionRoleArn": "arn:aws:iam::ACCOUNT_ID:role/ecsTaskExecutionRole",
+  "taskRoleArn": "arn:aws:iam::ACCOUNT_ID:role/ecsTaskRole",
+  "volumes": [
+    {
+      "name": "models-efs",
+      "efsVolumeConfiguration": {
+        "fileSystemId": "fs-PLACEHOLDER",
+        "rootDirectory": "/",
+        "transitEncryption": "ENABLED",
+        "authorizationConfig": {
+          "accessPointId": "fsap-PLACEHOLDER",
+          "iam": "ENABLED"
+        }
+      }
+    },
+    {
+      "name": "outputs-efs",
+      "efsVolumeConfiguration": {
+        "fileSystemId": "fs-PLACEHOLDER-OUTPUTS",
+        "rootDirectory": "/",
+        "transitEncryption": "ENABLED"
+      }
+    }
+  ],
+  "containerDefinitions": [
+    {
+      "name": "viralix-llama",
+      "image": "${ECR_REGISTRY}/viralix-llama:latest",
+      "essential": true,
+      "portMappings": [
+        {
+          "containerPort": 8100,
+          "hostPort": 8100,
+          "protocol": "tcp"
+        }
+      ],
+      "environment": [
+        { "name": "MODEL_PATH",    "value": "/models/llama3-70b.Q4_K_M.gguf" },
+        { "name": "N_GPU_LAYERS",  "value": "-1" },
+        { "name": "N_CTX",         "value": "4096" },
+        { "name": "N_BATCH",       "value": "512" },
+        { "name": "N_THREADS",     "value": "8" },
+        { "name": "OUTPUTS_DIR",   "value": "/outputs" }
+      ],
+      "mountPoints": [
+        {
+          "sourceVolume": "models-efs",
+          "containerPath": "/models",
+          "readOnly": true
+        },
+        {
+          "sourceVolume": "outputs-efs",
+          "containerPath": "/outputs",
+          "readOnly": false
+        }
+      ],
+      "resourceRequirements": [
+        {
+          "type": "GPU",
+          "value": "1"
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/viralix-llama",
+          "awslogs-region": "us-east-1",
+          "awslogs-stream-prefix": "ecs"
+        }
+      },
+      "healthCheck": {
+        "command": ["CMD-SHELL", "curl -f http://localhost:8100/health || exit 1"],
+        "interval": 60,
+        "timeout": 15,
+        "retries": 3,
+        "startPeriod": 300
+      },
+      "ulimits": [
+        { "name": "memlock", "softLimit": -1, "hardLimit": -1 },
+        { "name": "stack",   "softLimit": 67108864, "hardLimit": 67108864 }
+      ],
+      "stopTimeout": 60
+    }
+  ]
+}

@@ -1,0 +1,108 @@
+{
+  "family": "viralix-api",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "1024",
+  "memory": "2048",
+  "executionRoleArn": "arn:aws:iam::ACCOUNT_ID:role/ecsTaskExecutionRole",
+  "taskRoleArn": "arn:aws:iam::ACCOUNT_ID:role/ecsTaskRole",
+  "containerDefinitions": [
+    {
+      "name": "viralix-api",
+      "image": "${ECR_REGISTRY}/viralix-api:latest",
+      "essential": true,
+      "portMappings": [
+        {
+          "containerPort": 8090,
+          "hostPort": 8090,
+          "protocol": "tcp"
+        }
+      ],
+      "environment": [
+        { "name": "NODE_ENV",              "value": "production" },
+        { "name": "PORT",                  "value": "8090" },
+        { "name": "LLAMA_WORKER_URL",      "value": "http://viralix-llama.internal:8100" },
+        { "name": "SD_WORKER_URL",         "value": "http://viralix-sdxl.internal:8101" },
+        { "name": "COGVIDEO_WORKER_URL",   "value": "http://viralix-video.internal:8102" },
+        { "name": "ANIMATEDIFF_WORKER_URL","value": "http://viralix-video.internal:8103" },
+        { "name": "TTS_WORKER_URL",        "value": "http://viralix-tts-ffmpeg.internal:8104" },
+        { "name": "FFMPEG_WORKER_URL",     "value": "http://viralix-tts-ffmpeg.internal:8105" },
+        { "name": "FINETUNE_WORKER_URL",   "value": "http://viralix-finetuning.internal:8106" }
+      ],
+      "secrets": [
+        {
+          "name": "DATABASE_URL",
+          "valueFrom": "arn:aws:secretsmanager:us-east-1:ACCOUNT_ID:secret:viralix/prod/database-url"
+        },
+        {
+          "name": "REDIS_URL",
+          "valueFrom": "arn:aws:secretsmanager:us-east-1:ACCOUNT_ID:secret:viralix/prod/redis-url"
+        },
+        {
+          "name": "JWT_SECRET",
+          "valueFrom": "arn:aws:secretsmanager:us-east-1:ACCOUNT_ID:secret:viralix/prod/jwt-secret"
+        },
+        {
+          "name": "STRIPE_SECRET_KEY",
+          "valueFrom": "arn:aws:secretsmanager:us-east-1:ACCOUNT_ID:secret:viralix/prod/stripe-secret-key"
+        },
+        {
+          "name": "STRIPE_WEBHOOK_SECRET",
+          "valueFrom": "arn:aws:secretsmanager:us-east-1:ACCOUNT_ID:secret:viralix/prod/stripe-webhook-secret"
+        },
+        {
+          "name": "ANTHROPIC_API_KEY",
+          "valueFrom": "arn:aws:secretsmanager:us-east-1:ACCOUNT_ID:secret:viralix/prod/anthropic-api-key"
+        },
+        {
+          "name": "GOOGLE_OAUTH_CLIENT_ID",
+          "valueFrom": "arn:aws:secretsmanager:us-east-1:ACCOUNT_ID:secret:viralix/prod/google-oauth-client-id"
+        },
+        {
+          "name": "GOOGLE_OAUTH_CLIENT_SECRET",
+          "valueFrom": "arn:aws:secretsmanager:us-east-1:ACCOUNT_ID:secret:viralix/prod/google-oauth-client-secret"
+        },
+        {
+          "name": "META_APP_ID",
+          "valueFrom": "arn:aws:secretsmanager:us-east-1:ACCOUNT_ID:secret:viralix/prod/meta-app-id"
+        },
+        {
+          "name": "META_APP_SECRET",
+          "valueFrom": "arn:aws:secretsmanager:us-east-1:ACCOUNT_ID:secret:viralix/prod/meta-app-secret"
+        },
+        {
+          "name": "TIKTOK_APP_ID",
+          "valueFrom": "arn:aws:secretsmanager:us-east-1:ACCOUNT_ID:secret:viralix/prod/tiktok-app-id"
+        },
+        {
+          "name": "TIKTOK_APP_SECRET",
+          "valueFrom": "arn:aws:secretsmanager:us-east-1:ACCOUNT_ID:secret:viralix/prod/tiktok-app-secret"
+        },
+        {
+          "name": "AWS_S3_BUCKET",
+          "valueFrom": "arn:aws:secretsmanager:us-east-1:ACCOUNT_ID:secret:viralix/prod/s3-bucket"
+        },
+        {
+          "name": "SMTP_URL",
+          "valueFrom": "arn:aws:secretsmanager:us-east-1:ACCOUNT_ID:secret:viralix/prod/smtp-url"
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/viralix-api",
+          "awslogs-region": "us-east-1",
+          "awslogs-stream-prefix": "ecs"
+        }
+      },
+      "healthCheck": {
+        "command": ["CMD-SHELL", "curl -f http://localhost:8090/health || exit 1"],
+        "interval": 30,
+        "timeout": 10,
+        "retries": 3,
+        "startPeriod": 60
+      },
+      "stopTimeout": 30
+    }
+  ]
+}

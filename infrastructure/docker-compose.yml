@@ -1,0 +1,184 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: viralix
+      POSTGRES_USER: viralix
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U viralix"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: ..
+      dockerfile: apps/api/Dockerfile
+    ports:
+      - "8090:8090"
+    environment:
+      DATABASE_URL: postgresql://viralix:password@postgres:5432/viralix
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: dev-secret-change-in-prod
+      NODE_ENV: development
+      LLAMA_WORKER_URL: http://llama:8100
+      SD_WORKER_URL: http://sd-xl:8101
+      COGVIDEO_WORKER_URL: http://cogvideo:8102
+      ANIMATEDIFF_WORKER_URL: http://animatediff:8103
+      TTS_WORKER_URL: http://kokoro-tts:8104
+      FFMPEG_WORKER_URL: http://ffmpeg-worker:8105
+      FINETUNE_WORKER_URL: http://finetuning:8106
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  llama:
+    build:
+      context: ../ai-workers/llama
+    ports:
+      - "8100:8100"
+    volumes:
+      - ./models:/models
+      - ./outputs:/outputs
+    environment:
+      MODEL_PATH: /models/llama3-70b.Q4_K_M.gguf
+      N_GPU_LAYERS: -1
+      N_CTX: 4096
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
+
+  sd-xl:
+    build:
+      context: ../ai-workers/sd-xl
+    ports:
+      - "8101:8101"
+    volumes:
+      - ./models:/models
+      - ./outputs:/outputs
+    environment:
+      SDXL_BASE_MODEL: stabilityai/stable-diffusion-xl-base-1.0
+      SDXL_REFINER_MODEL: stabilityai/stable-diffusion-xl-refiner-1.0
+      CONTROLNET_MODEL: lllyasviel/controlnet-canny-sdxl-1.0
+      OUTPUTS_DIR: /outputs
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
+
+  cogvideo:
+    build:
+      context: ../ai-workers/cogvideo
+    ports:
+      - "8102:8102"
+    volumes:
+      - ./models:/models
+      - ./outputs:/outputs
+    environment:
+      COGVIDEO_MODEL: THUDM/CogVideoX-5b
+      OUTPUTS_DIR: /outputs
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
+
+  animatediff:
+    build:
+      context: ../ai-workers/animatediff
+    ports:
+      - "8103:8103"
+    volumes:
+      - ./models:/models
+      - ./outputs:/outputs
+    environment:
+      MOTION_ADAPTER_ID: guoyww/animatediff-motion-adapter-v1-5-2
+      OUTPUTS_DIR: /outputs
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
+
+  kokoro-tts:
+    build:
+      context: ../ai-workers/kokoro-tts
+    ports:
+      - "8104:8104"
+    volumes:
+      - ./outputs:/outputs
+    environment:
+      OUTPUTS_DIR: /outputs
+    restart: unless-stopped
+
+  ffmpeg-worker:
+    build:
+      context: ../ai-workers/ffmpeg-worker
+    ports:
+      - "8105:8105"
+    volumes:
+      - ./outputs:/outputs
+    environment:
+      OUTPUTS_DIR: /outputs
+    restart: unless-stopped
+
+  finetuning:
+    build:
+      context: ../ai-workers/finetuning
+    ports:
+      - "8106:8106"
+    volumes:
+      - ./models:/models
+      - ./datasets:/datasets
+    environment:
+      MODELS_DIR: /models
+      DATASETS_DIR: /datasets
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  redis-data:

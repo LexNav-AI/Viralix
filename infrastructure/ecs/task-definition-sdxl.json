@@ -1,0 +1,90 @@
+{
+  "family": "viralix-sdxl",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["EC2"],
+  "cpu": "8192",
+  "memory": "24576",
+  "executionRoleArn": "arn:aws:iam::ACCOUNT_ID:role/ecsTaskExecutionRole",
+  "taskRoleArn": "arn:aws:iam::ACCOUNT_ID:role/ecsTaskRole",
+  "volumes": [
+    {
+      "name": "models-efs",
+      "efsVolumeConfiguration": {
+        "fileSystemId": "fs-PLACEHOLDER",
+        "rootDirectory": "/",
+        "transitEncryption": "ENABLED",
+        "authorizationConfig": {
+          "accessPointId": "fsap-PLACEHOLDER",
+          "iam": "ENABLED"
+        }
+      }
+    },
+    {
+      "name": "outputs-efs",
+      "efsVolumeConfiguration": {
+        "fileSystemId": "fs-PLACEHOLDER-OUTPUTS",
+        "rootDirectory": "/",
+        "transitEncryption": "ENABLED"
+      }
+    }
+  ],
+  "containerDefinitions": [
+    {
+      "name": "viralix-sdxl",
+      "image": "${ECR_REGISTRY}/viralix-sdxl:latest",
+      "essential": true,
+      "portMappings": [
+        {
+          "containerPort": 8101,
+          "hostPort": 8101,
+          "protocol": "tcp"
+        }
+      ],
+      "environment": [
+        { "name": "SDXL_BASE_MODEL",     "value": "stabilityai/stable-diffusion-xl-base-1.0" },
+        { "name": "SDXL_REFINER_MODEL",  "value": "stabilityai/stable-diffusion-xl-refiner-1.0" },
+        { "name": "CONTROLNET_MODEL",    "value": "lllyasviel/controlnet-canny-sdxl-1.0" },
+        { "name": "USE_REFINER",         "value": "true" },
+        { "name": "USE_CONTROLNET",      "value": "true" },
+        { "name": "OUTPUTS_DIR",         "value": "/outputs" }
+      ],
+      "mountPoints": [
+        {
+          "sourceVolume": "models-efs",
+          "containerPath": "/models",
+          "readOnly": true
+        },
+        {
+          "sourceVolume": "outputs-efs",
+          "containerPath": "/outputs",
+          "readOnly": false
+        }
+      ],
+      "resourceRequirements": [
+        {
+          "type": "GPU",
+          "value": "1"
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/viralix-sdxl",
+          "awslogs-region": "us-east-1",
+          "awslogs-stream-prefix": "ecs"
+        }
+      },
+      "healthCheck": {
+        "command": ["CMD-SHELL", "curl -f http://localhost:8101/health || exit 1"],
+        "interval": 60,
+        "timeout": 15,
+        "retries": 3,
+        "startPeriod": 300
+      },
+      "ulimits": [
+        { "name": "memlock", "softLimit": -1, "hardLimit": -1 }
+      ],
+      "stopTimeout": 60
+    }
+  ]
+}

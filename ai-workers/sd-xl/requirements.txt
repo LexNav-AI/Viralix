@@ -1,0 +1,11 @@
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+diffusers==0.33.1
+transformers==4.52.4
+accelerate==1.7.0
+torch==2.7.0
+torchvision==0.22.0
+controlnet-aux==0.0.9
+pydantic==2.10.4
+Pillow==11.2.1
+python-dotenv==1.0.1

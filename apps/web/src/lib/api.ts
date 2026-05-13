@@ -374,7 +374,19 @@ export const publishing = {
 // Extends each sub-module with additional methods used by pages.
 
 export const api = {
-  auth,
+  auth: {
+    ...auth,
+    updateProfile: (data: { name?: string; email?: string; avatarUrl?: string }) =>
+      request<User>('/auth/profile', { method: 'PATCH', body: data }),
+    listApiKeys: () => request<{ id: string; name: string; createdAt: string; lastUsedAt?: string }[]>('/auth/api-keys'),
+    createApiKey: (data: { name: string }) =>
+      request<{ id: string; name: string; key: string; createdAt: string }>('/auth/api-keys', {
+        method: 'POST',
+        body: data,
+      }),
+    deleteApiKey: (id: string) =>
+      request<void>(`/auth/api-keys/${id}`, { method: 'DELETE' }),
+  },
   workspaces,
   campaigns: {
     ...campaigns,

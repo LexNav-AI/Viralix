@@ -1,172 +1,216 @@
-import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { useWorkspace } from '@/lib/hooks/use-workspace'
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
+import { TrendingUp, Eye, MousePointer, ShoppingCart } from 'lucide-react'
 import { api } from '@/lib/api'
-import { formatNumber, formatPercent, formatCurrency } from '@/lib/utils'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Badge } from '@/components/ui/badge'
-import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, BarChart, Bar, RadialBarChart, RadialBar, Legend, Cell } from 'recharts'
-
-const DATE_RANGES = [
-  { label: '7d', days: 7 },
-  { label: '30d', days: 30 },
-  { label: '90d', days: 90 },
-]
+import { formatNumber } from '@/lib/utils'
+import type { AnalyticsOverview } from '@/lib/api'
 
 const PLATFORM_COLORS: Record<string, string> = {
-  facebook: '#1877F2', instagram: '#E1306C', tiktok: '#69C9D0', linkedin: '#0A66C2', twitter: '#1DA1F2',
+  facebook: '#1877F2',
+  instagram: '#E1306C',
+  tiktok: '#FF0050',
+  youtube: '#FF0000',
+  twitter: '#1DA1F2',
+  linkedin: '#0A66C2',
+  pinterest: '#E60023',
+  snapchat: '#FFFC00',
 }
 
-export default function AnalyticsPage() {
-  const { workspace } = useWorkspace()
-  const wid = workspace?.id ?? ''
-  const [range, setRange] = useState(30)
+const CHART_TOOLTIP_STYLE = {
+  background: '#111116',
+  border: '1px solid #1A1A24',
+  borderRadius: 8,
+  fontSize: 12,
+  color: '#F4F4F5',
+}
 
-  const dateFrom = new Date(Date.now() - range * 86400000).toISOString().split('T')[0]
-  const dateTo = new Date().toISOString().split('T')[0]
+export default function Analytics() {
+  const { data: analyticsData, isLoading } = useQuery({
+    queryKey: ['analytics-overview'],
+    queryFn: api.analytics.overview,
+    refetchInterval: 60_000,
+  })
 
-  const { data: overview, isLoading: loadO } = useQuery({ queryKey: ['analytics', 'overview', wid, range], queryFn: () => api.analytics.overview(wid, { from: dateFrom, to: dateTo }), enabled: !!wid })
-  const { data: trends, isLoading: loadT } = useQuery({ queryKey: ['analytics', 'trends', wid, range], queryFn: () => api.analytics.trends(wid, { from: dateFrom, to: dateTo }), enabled: !!wid })
-  const { data: byPlatform } = useQuery({ queryKey: ['analytics', 'by-platform', wid, range], queryFn: () => api.analytics.byPlatform(wid, { from: dateFrom, to: dateTo }), enabled: !!wid })
-  const { data: byFormat } = useQuery({ queryKey: ['analytics', 'by-format', wid, range], queryFn: () => api.analytics.byFormat(wid, { from: dateFrom, to: dateTo }), enabled: !!wid })
-  const { data: topAds } = useQuery({ queryKey: ['analytics', 'top-performers', wid, range], queryFn: () => api.analytics.topPerformers(wid, { metric: 'ctr', limit: 10 }), enabled: !!wid })
-  const { data: insights } = useQuery({ queryKey: ['analytics', 'insights', wid], queryFn: () => api.analytics.insights(wid), enabled: !!wid })
+  const data = analyticsData ?? []
 
-  const metrics = [
-    { label: 'Total Impressions', value: loadO ? null : formatNumber(overview?.impressions ?? 0) },
-    { label: 'Total Clicks', value: loadO ? null : formatNumber(overview?.clicks ?? 0) },
-    { label: 'Avg CTR', value: loadO ? null : formatPercent(overview?.avgCtr ?? 0) },
-    { label: 'Total Spend', value: loadO ? null : formatCurrency(overview?.spend ?? 0) },
-    { label: 'Conversions', value: loadO ? null : formatNumber(overview?.conversions ?? 0) },
-    { label: 'Avg ROAS', value: loadO ? null : `${Number(overview?.avgRoas ?? 0).toFixed(2)}x` },
+  const totalViews = data.reduce((acc, a) => acc + Number(a.views ?? 0), 0)
+  const totalClicks = data.reduce((acc, a) => acc + Number(a.clicks ?? 0), 0)
+  const totalConversions = data.reduce((acc, a) => acc + Number(a.conversions ?? 0), 0)
+  const avgCtr = totalViews > 0 ? (totalClicks / totalViews) * 100 : 0
+
+  const stats = [
+    { label: 'Total Views', value: formatNumber(totalViews), icon: Eye, color: '#A78BFA' },
+    { label: 'Total Clicks', value: formatNumber(totalClicks), icon: MousePointer, color: '#60A5FA' },
+    { label: 'Total Conversions', value: formatNumber(totalConversions), icon: ShoppingCart, color: '#34D399' },
+    { label: 'Average CTR', value: `${avgCtr.toFixed(2)}%`, icon: TrendingUp, color: '#FB923C' },
   ]
 
+  const chartData = data.map(a => ({
+    platform: a.platform,
+    views: Number(a.views ?? 0),
+    clicks: Number(a.clicks ?? 0),
+    conversions: Number(a.conversions ?? 0),
+  }))
+
   return (
-    <div className="p-6 space-y-6 max-w-7xl mx-auto">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Analytics</h1>
-          <p className="text-muted-foreground text-sm">Performance across all platforms</p>
-        </div>
-        <div className="flex gap-1">
-          {DATE_RANGES.map(r => (
-            <Button key={r.label} size="sm" variant={range === r.days ? 'default' : 'outline'} onClick={() => setRange(r.days)}>
-              {r.label}
-            </Button>
-          ))}
-        </div>
+    <div className="flex-1 p-6 space-y-6 overflow-auto">
+      <div>
+        <h1 className="text-2xl font-bold text-[#F4F4F5]">Analytics</h1>
+        <p className="text-sm text-[#8B8BA0]">Performance across all platforms</p>
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
-        {metrics.map(m => (
-          <Card key={m.label}>
-            <CardContent className="p-3">
-              <p className="text-xs text-muted-foreground">{m.label}</p>
-              {m.value === null ? <Skeleton className="h-6 w-16 mt-1" /> : <p className="text-lg font-bold mt-0.5">{m.value}</p>}
-            </CardContent>
-          </Card>
-        ))}
+      {/* Stats cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {isLoading
+          ? Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-24" />)
+          : stats.map(({ label, value, icon: Icon, color }) => (
+              <Card key={label}>
+                <CardContent className="p-4 flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0" style={{ backgroundColor: `${color}20` }}>
+                    <Icon className="w-4 h-4" style={{ color }} />
+                  </div>
+                  <div>
+                    <p className="text-xl font-bold text-[#F4F4F5]">{value}</p>
+                    <p className="text-xs text-[#8B8BA0]">{label}</p>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
       </div>
 
-      <div className="grid lg:grid-cols-2 gap-6">
-        <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-sm">Impressions & Clicks Trend</CardTitle></CardHeader>
-          <CardContent>
-            {loadT ? <Skeleton className="h-48 w-full" /> : (
-              <ResponsiveContainer width="100%" height={200}>
-                <LineChart data={trends ?? []}>
-                  <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#8B8BA0' }} tickFormatter={d => d.slice(5)} />
-                  <YAxis tick={{ fontSize: 10, fill: '#8B8BA0' }} />
-                  <Tooltip contentStyle={{ background: '#111116', border: '1px solid #1A1A24', borderRadius: 8, fontSize: 11 }} />
-                  <Line type="monotone" dataKey="impressions" stroke="#7C3AED" strokeWidth={2} dot={false} name="Impressions" />
-                  <Line type="monotone" dataKey="clicks" stroke="#60A5FA" strokeWidth={2} dot={false} name="Clicks" />
-                </LineChart>
-              </ResponsiveContainer>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-sm">Clicks by Platform</CardTitle></CardHeader>
-          <CardContent>
-            <ResponsiveContainer width="100%" height={200}>
-              <BarChart data={byPlatform ?? []}>
-                <XAxis dataKey="platform" tick={{ fontSize: 10, fill: '#8B8BA0' }} />
-                <YAxis tick={{ fontSize: 10, fill: '#8B8BA0' }} />
-                <Tooltip contentStyle={{ background: '#111116', border: '1px solid #1A1A24', borderRadius: 8, fontSize: 11 }} />
-                <Bar dataKey="clicks" radius={[4, 4, 0, 0]}>
-                  {(byPlatform ?? []).map((entry: { platform: string }) => (
+      {/* Bar chart */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Performance by Platform</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {isLoading ? (
+            <Skeleton className="h-56 w-full" />
+          ) : chartData.length === 0 ? (
+            <div className="h-56 flex items-center justify-center text-[#8B8BA0] text-sm">
+              No analytics data yet
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart data={chartData} barGap={4}>
+                <XAxis
+                  dataKey="platform"
+                  tick={{ fontSize: 11, fill: '#8B8BA0' }}
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <YAxis
+                  tick={{ fontSize: 11, fill: '#8B8BA0' }}
+                  axisLine={false}
+                  tickLine={false}
+                  tickFormatter={v => formatNumber(Number(v))}
+                />
+                <Tooltip
+                  contentStyle={CHART_TOOLTIP_STYLE}
+                  formatter={(value: number, name: string) => [formatNumber(value), name.charAt(0).toUpperCase() + name.slice(1)]}
+                />
+                <Bar dataKey="views" name="views" radius={[4, 4, 0, 0]}>
+                  {chartData.map(entry => (
+                    <Cell key={entry.platform} fill={PLATFORM_COLORS[entry.platform] ?? '#7C3AED'} opacity={0.7} />
+                  ))}
+                </Bar>
+                <Bar dataKey="clicks" name="clicks" radius={[4, 4, 0, 0]}>
+                  {chartData.map(entry => (
                     <Cell key={entry.platform} fill={PLATFORM_COLORS[entry.platform] ?? '#7C3AED'} />
+                  ))}
+                </Bar>
+                <Bar dataKey="conversions" name="conversions" radius={[4, 4, 0, 0]}>
+                  {chartData.map(entry => (
+                    <Cell key={entry.platform} fill={PLATFORM_COLORS[entry.platform] ?? '#7C3AED'} opacity={0.5} />
                   ))}
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
-          </CardContent>
-        </Card>
-      </div>
-
-      <Card>
-        <CardHeader className="pb-2"><CardTitle className="text-sm">CTR by Format</CardTitle></CardHeader>
-        <CardContent>
-          <ResponsiveContainer width="100%" height={160}>
-            <BarChart data={byFormat ?? []} layout="vertical">
-              <XAxis type="number" tick={{ fontSize: 10, fill: '#8B8BA0' }} tickFormatter={v => `${v}%`} />
-              <YAxis type="category" dataKey="format" tick={{ fontSize: 10, fill: '#8B8BA0' }} width={100} tickFormatter={f => f.replace(/_/g, ' ')} />
-              <Tooltip contentStyle={{ background: '#111116', border: '1px solid #1A1A24', borderRadius: 8, fontSize: 11 }} />
-              <Bar dataKey="avgCtr" fill="#7C3AED" radius={[0, 4, 4, 0]} name="Avg CTR %" />
-            </BarChart>
-          </ResponsiveContainer>
+          )}
         </CardContent>
       </Card>
 
+      {/* Table */}
       <Card>
-        <CardHeader className="pb-2"><CardTitle className="text-sm">Top Performing Ads</CardTitle></CardHeader>
+        <CardHeader>
+          <CardTitle className="text-base">Platform Breakdown</CardTitle>
+        </CardHeader>
         <CardContent>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border">
-                  <th className="text-left py-2 text-xs text-muted-foreground font-medium">Ad</th>
-                  <th className="text-left py-2 text-xs text-muted-foreground font-medium">Format</th>
-                  <th className="text-left py-2 text-xs text-muted-foreground font-medium">Platform</th>
-                  <th className="text-right py-2 text-xs text-muted-foreground font-medium">Impressions</th>
-                  <th className="text-right py-2 text-xs text-muted-foreground font-medium">CTR</th>
-                  <th className="text-right py-2 text-xs text-muted-foreground font-medium">ROAS</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(topAds ?? []).map((ad: { adId: string; headline: string; format: string; platform: string; totalImpressions: number; avgCtr: number; avgRoas: number }) => (
-                  <tr key={ad.adId} className="border-b border-border/50 hover:bg-accent/20">
-                    <td className="py-2 max-w-48 truncate">{ad.headline}</td>
-                    <td className="py-2 text-xs text-muted-foreground">{ad.format.replace(/_/g, ' ')}</td>
-                    <td className="py-2"><Badge variant="outline" className="text-xs capitalize">{ad.platform}</Badge></td>
-                    <td className="py-2 text-right text-xs">{formatNumber(ad.totalImpressions)}</td>
-                    <td className="py-2 text-right text-xs text-emerald-400">{formatPercent(ad.avgCtr)}</td>
-                    <td className="py-2 text-right text-xs">{Number(ad.avgRoas).toFixed(2)}x</td>
+          {isLoading ? (
+            <div className="space-y-2">
+              {Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-10" />)}
+            </div>
+          ) : data.length === 0 ? (
+            <div className="text-center py-8 text-[#8B8BA0] text-sm">
+              No analytics data yet. Launch campaigns to start collecting data.
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-[#1A1A24]">
+                    <th className="text-left py-3 px-2 text-xs text-[#8B8BA0] font-medium">Platform</th>
+                    <th className="text-right py-3 px-2 text-xs text-[#8B8BA0] font-medium">Views</th>
+                    <th className="text-right py-3 px-2 text-xs text-[#8B8BA0] font-medium">Clicks</th>
+                    <th className="text-right py-3 px-2 text-xs text-[#8B8BA0] font-medium">Conversions</th>
+                    <th className="text-right py-3 px-2 text-xs text-[#8B8BA0] font-medium">CTR</th>
                   </tr>
-                ))}
-                {!topAds?.length && <tr><td colSpan={6} className="py-8 text-center text-muted-foreground text-xs">No performance data yet</td></tr>}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {data.map((row: AnalyticsOverview) => {
+                    const views = Number(row.views ?? 0)
+                    const clicks = Number(row.clicks ?? 0)
+                    const conversions = Number(row.conversions ?? 0)
+                    const ctr = views > 0 ? ((clicks / views) * 100).toFixed(2) : '0.00'
+                    return (
+                      <tr key={row.platform} className="border-b border-[#1A1A24]/50 hover:bg-[#1A1A24]/30 transition-colors">
+                        <td className="py-3 px-2">
+                          <div className="flex items-center gap-2">
+                            <div
+                              className="w-2.5 h-2.5 rounded-full shrink-0"
+                              style={{ backgroundColor: PLATFORM_COLORS[row.platform] ?? '#7C3AED' }}
+                            />
+                            <Badge
+                              className="capitalize text-[10px]"
+                              style={{
+                                backgroundColor: `${PLATFORM_COLORS[row.platform] ?? '#7C3AED'}20`,
+                                color: PLATFORM_COLORS[row.platform] ?? '#A78BFA',
+                                border: 'none',
+                              }}
+                            >
+                              {row.platform}
+                            </Badge>
+                          </div>
+                        </td>
+                        <td className="py-3 px-2 text-right text-[#F4F4F5]">{formatNumber(views)}</td>
+                        <td className="py-3 px-2 text-right text-[#F4F4F5]">{formatNumber(clicks)}</td>
+                        <td className="py-3 px-2 text-right text-[#F4F4F5]">{formatNumber(conversions)}</td>
+                        <td className="py-3 px-2 text-right">
+                          <span className={Number(ctr) >= 2 ? 'text-emerald-400' : 'text-[#8B8BA0]'}>
+                            {ctr}%
+                          </span>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+                <tfoot>
+                  <tr className="border-t border-[#1A1A24]">
+                    <td className="py-3 px-2 text-xs font-semibold text-[#8B8BA0]">Total</td>
+                    <td className="py-3 px-2 text-right font-semibold text-[#F4F4F5]">{formatNumber(totalViews)}</td>
+                    <td className="py-3 px-2 text-right font-semibold text-[#F4F4F5]">{formatNumber(totalClicks)}</td>
+                    <td className="py-3 px-2 text-right font-semibold text-[#F4F4F5]">{formatNumber(totalConversions)}</td>
+                    <td className="py-3 px-2 text-right font-semibold text-[#F4F4F5]">{avgCtr.toFixed(2)}%</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          )}
         </CardContent>
       </Card>
-
-      {insights && insights.length > 0 && (
-        <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-sm">AI Insights</CardTitle></CardHeader>
-          <CardContent className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {insights.slice(0, 6).map((i: { id: string; insightType: string; insight: string; confidence: string | number }) => (
-              <div key={i.id} className="p-3 rounded-lg bg-accent/50 border border-border">
-                <Badge variant="secondary" className="text-xs mb-1.5 capitalize">{i.insightType.replace(/_/g, ' ')}</Badge>
-                <p className="text-xs leading-relaxed">{i.insight}</p>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-      )}
     </div>
   )
 }

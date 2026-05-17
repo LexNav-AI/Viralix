@@ -1,34 +1,34 @@
 import { Router } from 'express'
 import { db } from '../db'
-import { analytics, generatedAds, campaigns } from '../schema'
+import { adAnalytics } from '../schema'
 import { eq, sum, desc } from 'drizzle-orm'
 import { z } from 'zod'
 
 const router = Router()
 
-// Overview analytics
+// Aggregated overview by platform
 router.get('/overview', async (_req, res) => {
   const rows = await db.select({
-    platform: analytics.platform,
-    views: sum(analytics.views),
-    clicks: sum(analytics.clicks),
-    conversions: sum(analytics.conversions),
+    platform: adAnalytics.platform,
+    views: sum(adAnalytics.views),
+    clicks: sum(adAnalytics.clicks),
+    conversions: sum(adAnalytics.conversions),
   })
-    .from(analytics)
-    .groupBy(analytics.platform)
+    .from(adAnalytics)
+    .groupBy(adAnalytics.platform)
 
   res.json(rows)
 })
 
 // Analytics for a specific ad
 router.get('/ad/:adId', async (req, res) => {
-  const rows = await db.select().from(analytics)
-    .where(eq(analytics.adId, req.params.adId))
-    .orderBy(desc(analytics.recordedAt))
+  const rows = await db.select().from(adAnalytics)
+    .where(eq(adAnalytics.adId, req.params.adId))
+    .orderBy(desc(adAnalytics.recordedAt))
   res.json(rows)
 })
 
-// Ingest analytics (called by platform webhooks or manual tracking)
+// Ingest analytics (platform webhook or manual)
 router.post('/ingest', async (req, res) => {
   const body = z.object({
     adId: z.string().uuid(),
@@ -38,7 +38,7 @@ router.post('/ingest', async (req, res) => {
     conversions: z.number().int().min(0).default(0),
   }).parse(req.body)
 
-  const [row] = await db.insert(analytics).values(body as typeof analytics.$inferInsert).returning()
+  const [row] = await db.insert(adAnalytics).values(body as typeof adAnalytics.$inferInsert).returning()
   res.status(201).json(row)
 })
 

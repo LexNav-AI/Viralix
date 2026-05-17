@@ -2,7 +2,6 @@ import { Router } from 'express'
 import { db } from '../db'
 import { generatedAds } from '../schema'
 import { eq } from 'drizzle-orm'
-import { z } from 'zod'
 
 const router = Router()
 

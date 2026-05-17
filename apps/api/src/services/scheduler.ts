@@ -1,102 +1,44 @@
-import { eq, and, isNull, lte, sql } from 'drizzle-orm'
-import { db, campaigns, workspaces, calendarSlots, ads, scheduledPosts, generationJobs } from '../db'
-import { generationQueue, schedulerQueue } from '../jobs/queue'
-import { generateAdBatch } from './campaign-generator'
-import { publish } from './publisher'
-import { addDays, startOfDay, setHours, setMinutes } from 'date-fns'
+import { db } from '../db'
+import { generatedAds, postSchedule } from '../schema'
+import { eq, and } from 'drizzle-orm'
+import { addHours, addMinutes, startOfDay, addDays } from 'date-fns'
 
-export async function runDailyBatchGeneration(): Promise<void> {
-  console.log('[Scheduler] runDailyBatchGeneration starting')
+// Install date-fns: already in deps below
 
-  // Get all active workspaces with at least one active campaign
-  const activeCampaigns = await db
-    .select({
-      workspaceId: campaigns.workspaceId,
-      campaignId: campaigns.id,
-    })
-    .from(campaigns)
-    .innerJoin(workspaces, eq(campaigns.workspaceId, workspaces.id))
-    .where(
-      and(
-        eq(campaigns.status, 'active'),
-        isNull(campaigns.archivedAt),
-        isNull(workspaces.deletedAt),
-      ),
-    )
-
-  if (activeCampaigns.length === 0) {
-    console.log('[Scheduler] No active campaigns found')
-    return
-  }
-
-  const todayStart = startOfDay(new Date())
-  const todayEnd = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000)
-
-  for (const { workspaceId, campaignId } of activeCampaigns) {
-    try {
-      // Count ads generated today for this workspace
-      const [countRow] = await db
-        .select({ count: sql<number>`COUNT(*)` })
-        .from(generationJobs)
-        .where(
-          and(
-            eq(generationJobs.workspaceId, workspaceId),
-            sql`${generationJobs.createdAt} >= ${todayStart}`,
-            sql`${generationJobs.createdAt} < ${todayEnd}`,
-          ),
-        )
-
-      const generatedToday = Number(countRow?.count ?? 0)
-      const target = 14
-      const remaining = target - generatedToday
-
-      if (remaining <= 0) {
-        console.log(`[Scheduler] Workspace ${workspaceId} already has ${generatedToday} jobs today`)
-        continue
-      }
-
-      console.log(`[Scheduler] Generating ${remaining} ads for workspace ${workspaceId}, campaign ${campaignId}`)
-      await generateAdBatch(workspaceId, campaignId, remaining)
-    } catch (err) {
-      console.error(`[Scheduler] Error generating ads for workspace ${workspaceId}:`, err)
-    }
-  }
-
-  console.log('[Scheduler] runDailyBatchGeneration complete')
+const PLATFORM_SLOTS: Record<string, number[]> = {
+  instagram: [8, 12, 17, 20],
+  facebook:  [9, 13, 18, 21],
+  tiktok:    [7, 12, 16, 20],
+  youtube:   [10, 15, 19],
+  twitter:   [8, 11, 14, 18, 21],
+  linkedin:  [8, 12, 17],
+  pinterest: [9, 14, 20],
+  snapchat:  [11, 16, 21],
 }
 
-export async function processScheduledPosts(): Promise<void> {
-  const now = new Date()
+export async function scheduleAdsForCampaign(campaignId: string) {
+  const ads = await db.select().from(generatedAds)
+    .where(and(eq(generatedAds.campaignId, campaignId), eq(generatedAds.status, 'ready')))
 
-  const duePosts = await db
-    .select()
-    .from(scheduledPosts)
-    .where(
-      and(
-        eq(scheduledPosts.status, 'scheduled'),
-        lte(scheduledPosts.scheduledAt, now),
-      ),
-    )
-    .limit(50)
+  const today = startOfDay(new Date())
+  let adIndex = 0
 
-  if (duePosts.length === 0) return
+  for (let dayOffset = 0; dayOffset < 3; dayOffset++) {
+    const baseDay = addDays(today, dayOffset)
 
-  console.log(`[Scheduler] Processing ${duePosts.length} due scheduled posts`)
+    for (const [platform, slots] of Object.entries(PLATFORM_SLOTS)) {
+      for (const hour of slots) {
+        if (adIndex >= ads.length) break
+        const ad = ads[adIndex++]
+        const scheduledTime = addMinutes(addHours(baseDay, hour), Math.floor(Math.random() * 30))
 
-  for (const post of duePosts) {
-    try {
-      // Enqueue each as a BullMQ job so failures are tracked/retried
-      await schedulerQueue.add(
-        'PUBLISH_POST',
-        { scheduledPostId: post.id },
-        {
-          jobId: `publish-${post.id}`,
-          attempts: 3,
-          backoff: { type: 'exponential', delay: 5_000 },
-        },
-      )
-    } catch (err) {
-      console.error(`[Scheduler] Failed to enqueue post ${post.id}:`, err)
+        await db.insert(postSchedule).values({
+          adId: ad.id,
+          platform: platform as typeof postSchedule.$inferInsert['platform'],
+          scheduledTime,
+          status: 'scheduled',
+        })
+      }
     }
   }
 }

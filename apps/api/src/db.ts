@@ -1,9 +1,10 @@
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { Pool } from 'pg'
+import * as schema from './schema'
 import { config } from './config'
 
 const pool = new Pool({ connectionString: config.databaseUrl })
+export const db = drizzle(pool, { schema })
 
-export const db = drizzle(pool)
-
-export * from '@viralix/db'
+// Re-export all tables so routes can do: import { db, users, workspaces, ... } from '../db'
+export * from './schema'

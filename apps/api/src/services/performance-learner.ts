@@ -1,5 +1,5 @@
 import { eq, desc, sql, and, gte } from 'drizzle-orm'
-import { db, ads, adPerformance, performanceInsights, modelFineTunes } from '../db'
+import { db, ads, adPerformance, performanceInsights, modelFineTunes, workspaces } from '../db'
 import { config } from '../config'
 
 interface TopExample {
@@ -19,13 +19,14 @@ interface AdWithPerformance {
   totalClicks: number
   totalConversions: number
   totalSpend: number
-  totalRevenue: number
+  totalRoas: number
 }
 
 export async function analyzeWorkspacePerformance(workspaceId: string): Promise<void> {
   // Pull last 90 days of performance data for this workspace
   const since = new Date()
   since.setDate(since.getDate() - 90)
+  const sinceStr = since.toISOString().split('T')[0] // format as YYYY-MM-DD string
 
   const rows = await db
     .select({
@@ -35,11 +36,11 @@ export async function analyzeWorkspacePerformance(workspaceId: string): Promise<
       clicks: sql<number>`SUM(${adPerformance.clicks})`.as('total_clicks'),
       conversions: sql<number>`SUM(${adPerformance.conversions})`.as('total_conversions'),
       spend: sql<number>`SUM(CAST(${adPerformance.spend} AS DOUBLE PRECISION))`.as('total_spend'),
-      revenue: sql<number>`SUM(CAST(${adPerformance.revenue} AS DOUBLE PRECISION))`.as('total_revenue'),
+      roas: sql<number>`AVG(CAST(${adPerformance.roas} AS DOUBLE PRECISION))`.as('avg_roas'),
     })
     .from(adPerformance)
     .innerJoin(ads, eq(adPerformance.adId, ads.id))
-    .where(and(eq(ads.workspaceId, workspaceId), gte(adPerformance.date, since)))
+    .where(and(eq(ads.workspaceId, workspaceId), gte(adPerformance.date, sinceStr)))
     .groupBy(adPerformance.adId, adPerformance.platform)
 
   if (rows.length === 0) return
@@ -49,7 +50,8 @@ export async function analyzeWorkspacePerformance(workspaceId: string): Promise<
   let totalClicks = 0
   let totalConversions = 0
   let totalSpend = 0
-  let totalRevenue = 0
+  let totalRoas = 0
+  let roasCount = 0
 
   const adAggregates: Record<string, AdWithPerformance> = {}
 
@@ -58,7 +60,8 @@ export async function analyzeWorkspacePerformance(workspaceId: string): Promise<
     totalClicks += Number(row.clicks)
     totalConversions += Number(row.conversions)
     totalSpend += Number(row.spend)
-    totalRevenue += Number(row.revenue)
+    totalRoas += Number(row.roas)
+    roasCount++
 
     if (!adAggregates[row.adId]) {
       const [ad] = await db.select().from(ads).where(eq(ads.id, row.adId)).limit(1)
@@ -73,18 +76,18 @@ export async function analyzeWorkspacePerformance(workspaceId: string): Promise<
         totalClicks: 0,
         totalConversions: 0,
         totalSpend: 0,
-        totalRevenue: 0,
+        totalRoas: 0,
       }
     }
     adAggregates[row.adId].totalImpressions += Number(row.impressions)
     adAggregates[row.adId].totalClicks += Number(row.clicks)
     adAggregates[row.adId].totalConversions += Number(row.conversions)
     adAggregates[row.adId].totalSpend += Number(row.spend)
-    adAggregates[row.adId].totalRevenue += Number(row.revenue)
+    adAggregates[row.adId].totalRoas += Number(row.roas)
   }
 
   const avgCtr = totalImpressions > 0 ? (totalClicks / totalImpressions) * 100 : 0
-  const avgRoas = totalSpend > 0 ? totalRevenue / totalSpend : 0
+  const avgRoas = roasCount > 0 ? totalRoas / roasCount : 0
 
   const adList = Object.values(adAggregates)
   const sortedByCtr = [...adList].sort((a, b) => {
@@ -121,33 +124,28 @@ export async function analyzeWorkspacePerformance(workspaceId: string): Promise<
     return ctrB - ctrA
   })[0]
 
-  const now = new Date()
-
   const insights: Array<{
-    insightType: string
-    title: string
-    description: string
-    data: object
-    priority: number
+    insightType: 'headline_pattern' | 'cta_pattern' | 'visual_style' | 'audience_segment' | 'posting_time' | 'format'
+    insight: string
+    confidence: number
+    samplesAnalyzed: number
   }> = []
 
   insights.push({
-    insightType: 'performance_summary',
-    title: '90-Day Performance Summary',
-    description: `Your ads achieved an average CTR of ${avgCtr.toFixed(2)}% and ROAS of ${avgRoas.toFixed(2)}x over the last 90 days.`,
-    data: { avgCtr, avgRoas, totalImpressions, totalClicks, totalConversions, totalSpend, totalRevenue },
-    priority: 10,
+    insightType: 'audience_segment',
+    insight: `90-Day Performance: avg CTR ${avgCtr.toFixed(2)}%, avg ROAS ${avgRoas.toFixed(2)}x over ${totalImpressions.toLocaleString()} impressions.`,
+    confidence: Math.min(0.99, totalImpressions / 100000),
+    samplesAnalyzed: adList.length,
   })
 
   if (bestPlatform) {
     const [plat, stats] = bestPlatform
     const platCtr = stats.impressions > 0 ? ((stats.clicks / stats.impressions) * 100).toFixed(2) : '0.00'
     insights.push({
-      insightType: 'best_platform',
-      title: `${plat} is Your Top Platform`,
-      description: `${plat} delivers the highest CTR at ${platCtr}% across this period.`,
-      data: { platform: plat, ...stats },
-      priority: 8,
+      insightType: 'posting_time',
+      insight: `${plat} is your top platform with ${platCtr}% CTR.`,
+      confidence: Math.min(0.99, stats.impressions / 10000),
+      samplesAnalyzed: stats.impressions,
     })
   }
 
@@ -155,24 +153,19 @@ export async function analyzeWorkspacePerformance(workspaceId: string): Promise<
     const [fmt, stats] = bestFormat
     const fmtCtr = stats.impressions > 0 ? ((stats.clicks / stats.impressions) * 100).toFixed(2) : '0.00'
     insights.push({
-      insightType: 'best_format',
-      title: `${fmt} Drives the Best Engagement`,
-      description: `The ${fmt} format achieves a ${fmtCtr}% CTR — consider generating more of these.`,
-      data: { format: fmt, ...stats },
-      priority: 7,
+      insightType: 'format',
+      insight: `${fmt} format achieves ${fmtCtr}% CTR — consider generating more.`,
+      confidence: Math.min(0.99, stats.impressions / 10000),
+      samplesAnalyzed: stats.impressions,
     })
   }
 
   if (topByCtr.length > 0 && topByCtr[0].headline) {
     insights.push({
-      insightType: 'top_performer_pattern',
-      title: 'Top Performer Identified',
-      description: `Your best ad headline starts with "${topByCtr[0].headline.substring(0, 40)}..." — similar copy tends to outperform.`,
-      data: {
-        topAdIds: topByCtr.map((a) => a.id),
-        topHeadlines: topByCtr.map((a) => a.headline),
-      },
-      priority: 9,
+      insightType: 'headline_pattern',
+      insight: `Top performer starts with "${topByCtr[0].headline.substring(0, 40)}..." — similar copy tends to outperform.`,
+      confidence: 0.8,
+      samplesAnalyzed: topByCtr.length,
     })
   }
 
@@ -193,17 +186,18 @@ export async function analyzeWorkspacePerformance(workspaceId: string): Promise<
       await db
         .update(performanceInsights)
         .set({
-          title: insight.title,
-          description: insight.description,
-          data: insight.data,
-          priority: insight.priority,
-          updatedAt: now,
+          insight: insight.insight,
+          confidence: String(insight.confidence),
+          samplesAnalyzed: insight.samplesAnalyzed,
         })
         .where(eq(performanceInsights.id, existing[0].id))
     } else {
       await db.insert(performanceInsights).values({
         workspaceId,
-        ...insight,
+        insightType: insight.insightType,
+        insight: insight.insight,
+        confidence: String(insight.confidence),
+        samplesAnalyzed: insight.samplesAnalyzed,
       })
     }
   }
@@ -219,14 +213,15 @@ export async function analyzeWorkspacePerformance(workspaceId: string): Promise<
     if (!existingFt) {
       await db.insert(modelFineTunes).values({
         workspaceId,
+        modelType: 'llama',
         status: 'pending',
-        sampleCount: adList.length,
+        samplesUsed: adList.length,
       })
       console.log(`[PerformanceLearner] Fine-tune queued for workspace ${workspaceId} with ${adList.length} samples`)
     } else {
       await db
         .update(modelFineTunes)
-        .set({ sampleCount: adList.length, updatedAt: now })
+        .set({ samplesUsed: adList.length })
         .where(eq(modelFineTunes.id, existingFt.id))
     }
   }
@@ -235,13 +230,9 @@ export async function analyzeWorkspacePerformance(workspaceId: string): Promise<
 }
 
 export async function analyzeAllWorkspaces(): Promise<void> {
-  const { isNull } = await import('drizzle-orm')
-  const { workspaces } = await import('../db')
-
   const activeWorkspaces = await db
     .select({ id: workspaces.id })
     .from(workspaces)
-    .where(isNull(workspaces.deletedAt))
 
   for (const ws of activeWorkspaces) {
     try {
@@ -263,7 +254,7 @@ export async function getTopPerformingExamples(
       impressions: sql<number>`SUM(${adPerformance.impressions})`.as('impressions'),
       clicks: sql<number>`SUM(${adPerformance.clicks})`.as('clicks'),
       spend: sql<number>`SUM(CAST(${adPerformance.spend} AS DOUBLE PRECISION))`.as('spend'),
-      revenue: sql<number>`SUM(CAST(${adPerformance.revenue} AS DOUBLE PRECISION))`.as('revenue'),
+      roas: sql<number>`AVG(CAST(${adPerformance.roas} AS DOUBLE PRECISION))`.as('roas'),
     })
     .from(ads)
     .innerJoin(adPerformance, eq(ads.id, adPerformance.adId))
@@ -277,13 +268,12 @@ export async function getTopPerformingExamples(
     .map((r) => {
       const imp = Number(r.impressions)
       const clk = Number(r.clicks)
-      const spd = Number(r.spend)
-      const rev = Number(r.revenue)
+      const roasVal = Number(r.roas)
       return {
         headline: r.headline as string,
         bodyText: r.bodyText as string,
         ctr: imp > 0 ? clk / imp : 0,
-        roas: spd > 0 ? rev / spd : 0,
+        roas: roasVal,
       }
     })
 }

@@ -1,2 +1,9 @@
 packages:
   - 'apps/*'
+  - 'lib/*'
+
+catalog:
+  drizzle-orm: ^0.45.1
+  typescript: ^5.8.3
+  tsx: ^4.21.0
+  '@types/node': ^22.15.29

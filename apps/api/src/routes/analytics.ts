@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import { db } from '../db'
-import { analytics, generatedAds, campaigns } from '../schema'
+import { dailyAnalytics } from '../db'
 import { eq, sum, desc } from 'drizzle-orm'
 import { z } from 'zod'
 
@@ -9,36 +9,38 @@ const router = Router()
 // Overview analytics
 router.get('/overview', async (_req, res) => {
   const rows = await db.select({
-    platform: analytics.platform,
-    views: sum(analytics.views),
-    clicks: sum(analytics.clicks),
-    conversions: sum(analytics.conversions),
+    platform: dailyAnalytics.platform,
+    views: sum(dailyAnalytics.totalImpressions),
+    clicks: sum(dailyAnalytics.totalClicks),
+    conversions: sum(dailyAnalytics.totalConversions),
   })
-    .from(analytics)
-    .groupBy(analytics.platform)
+    .from(dailyAnalytics)
+    .groupBy(dailyAnalytics.platform)
 
   res.json(rows)
 })
 
-// Analytics for a specific ad
-router.get('/ad/:adId', async (req, res) => {
-  const rows = await db.select().from(analytics)
-    .where(eq(analytics.adId, req.params.adId))
-    .orderBy(desc(analytics.recordedAt))
+// Analytics for a specific workspace by date
+router.get('/workspace/:workspaceId', async (req, res) => {
+  const workspaceId = req.params.workspaceId as string
+  const rows = await db.select().from(dailyAnalytics)
+    .where(eq(dailyAnalytics.workspaceId, workspaceId))
+    .orderBy(desc(dailyAnalytics.recordedAt))
   res.json(rows)
 })
 
 // Ingest analytics (called by platform webhooks or manual tracking)
 router.post('/ingest', async (req, res) => {
   const body = z.object({
-    adId: z.string().uuid(),
+    workspaceId: z.string().uuid(),
     platform: z.string(),
-    views: z.number().int().min(0).default(0),
-    clicks: z.number().int().min(0).default(0),
-    conversions: z.number().int().min(0).default(0),
+    date: z.string(),
+    totalImpressions: z.number().int().min(0).default(0),
+    totalClicks: z.number().int().min(0).default(0),
+    totalConversions: z.number().int().min(0).default(0),
   }).parse(req.body)
 
-  const [row] = await db.insert(analytics).values(body as typeof analytics.$inferInsert).returning()
+  const [row] = await db.insert(dailyAnalytics).values(body as typeof dailyAnalytics.$inferInsert).returning()
   res.status(201).json(row)
 })
 

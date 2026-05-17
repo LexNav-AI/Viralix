@@ -52,9 +52,9 @@ export {
   abTestVariants,
   dailyAnalytics,
   generationJobs,
-} from '../../../lib/db/schema'
+} from '@viralix/db'
 
-import { workspaces, users } from '../../../lib/db/schema'
+import { workspaces, users } from '@viralix/db'
 
 // ---------------------------------------------------------------------------
 // workspaceMembers — referenced by auth, workspace, calendar, brand routes

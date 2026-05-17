@@ -1,13 +1,16 @@
 import { Router, Request, Response } from 'express'
 import { z } from 'zod'
 import { and, eq, gte, lte } from 'drizzle-orm'
-import { addDays, startOfDay, setHours, setMinutes, format, getDayOfYear, getMonth, getYear } from 'date-fns'
+import { addDays, startOfDay, setHours, setMinutes, format } from 'date-fns'
 import { db, calendarSlots, scheduledPosts, ads, workspaceMembers } from '../db'
 import { requireAuth } from '../middleware/auth'
 import { validate } from '../middleware/validate'
 import { AppError } from '../middleware/error-handler'
 
 const router = Router({ mergeParams: true })
+
+type ScheduledPostPlatform = 'facebook' | 'instagram' | 'tiktok' | 'linkedin' | 'twitter'
+type CalendarPlatform = 'facebook' | 'instagram' | 'tiktok' | 'linkedin' | 'twitter'
 
 async function assertMember(userId: string, workspaceId: string): Promise<void> {
   const [m] = await db
@@ -20,7 +23,7 @@ async function assertMember(userId: string, workspaceId: string): Promise<void> 
 
 // GET /api/workspaces/:workspaceId/calendar?month=YYYY-MM
 router.get('/', requireAuth, async (req: Request, res: Response) => {
-  const { workspaceId } = req.params
+  const workspaceId = req.params.workspaceId as string
   await assertMember(req.user!.id, workspaceId)
 
   const monthParam = (req.query.month as string) || format(new Date(), 'yyyy-MM')
@@ -62,7 +65,7 @@ router.get('/', requireAuth, async (req: Request, res: Response) => {
 
 // GET /api/workspaces/:workspaceId/calendar/slots
 router.get('/slots', requireAuth, async (req: Request, res: Response) => {
-  const { workspaceId } = req.params
+  const workspaceId = req.params.workspaceId as string
   await assertMember(req.user!.id, workspaceId)
 
   const slots = await db
@@ -99,7 +102,7 @@ router.put(
     }),
   ),
   async (req: Request, res: Response) => {
-    const { workspaceId } = req.params
+    const workspaceId = req.params.workspaceId as string
     await assertMember(req.user!.id, workspaceId)
 
     const { slots } = req.body as {
@@ -112,7 +115,13 @@ router.put(
     if (slots.length > 0) {
       const inserted = await db
         .insert(calendarSlots)
-        .values(slots.map((s) => ({ ...s, workspaceId })))
+        .values(slots.map((s) => ({
+          workspaceId,
+          platform: s.platform as CalendarPlatform,
+          dayOfWeek: s.dayOfWeek,
+          hour: s.hour,
+          isEnabled: s.isEnabled,
+        })))
         .returning()
       res.json(inserted)
     } else {
@@ -123,7 +132,7 @@ router.put(
 
 // POST /api/workspaces/:workspaceId/calendar/auto-schedule
 router.post('/auto-schedule', requireAuth, async (req: Request, res: Response) => {
-  const { workspaceId } = req.params
+  const workspaceId = req.params.workspaceId as string
   await assertMember(req.user!.id, workspaceId)
 
   // Get enabled slots
@@ -159,7 +168,7 @@ router.post('/auto-schedule', requireAuth, async (req: Request, res: Response) =
     const dow = current.getDay()
     const matchingSlots = slots.filter((s) => s.dayOfWeek === dow)
     for (const slot of matchingSlots) {
-      const slotTime = setMinutes(setHours(new Date(current), slot.hour), slot.minute)
+      const slotTime = setMinutes(setHours(new Date(current), slot.hour), 0)
       if (slotTime > now) {
         slotTimes.push({ platform: slot.platform, time: slotTime })
       }
@@ -189,7 +198,7 @@ router.post('/auto-schedule', requireAuth, async (req: Request, res: Response) =
     createdPosts.push({
       workspaceId,
       adId: ad.id,
-      platform: slot.platform,
+      platform: slot.platform as ScheduledPostPlatform,
       scheduledAt: slot.time,
       status: 'scheduled',
     })
@@ -205,7 +214,7 @@ router.post('/auto-schedule', requireAuth, async (req: Request, res: Response) =
 
 function generateDefaultSlots(
   workspaceId: string,
-): Array<{ workspaceId: string; platform: string; dayOfWeek: number; hour: number; minute: number; isEnabled: boolean }> {
+): Array<{ workspaceId: string; platform: string; dayOfWeek: number; hour: number; isEnabled: boolean }> {
   const platforms = ['instagram', 'facebook', 'tiktok', 'linkedin', 'twitter']
   // Optimal times: Tue/Thu/Sat at 9am and 6pm UTC
   const days = [2, 4, 6]
@@ -215,7 +224,7 @@ function generateDefaultSlots(
   for (const platform of platforms) {
     for (const day of days) {
       for (const hour of hours) {
-        defaults.push({ workspaceId, platform, dayOfWeek: day, hour, minute: 0, isEnabled: true })
+        defaults.push({ workspaceId, platform, dayOfWeek: day, hour, isEnabled: true })
       }
     }
   }

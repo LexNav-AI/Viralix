@@ -2,26 +2,27 @@ FROM node:22-alpine AS builder
 
 WORKDIR /app
 
-# Enable pnpm via corepack
 RUN corepack enable && corepack prepare pnpm@9.15.9 --activate
 
 # Copy workspace manifests first (layer-cache friendly)
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
-COPY apps/api/package.json         ./apps/api/
-COPY lib/db/package.json           ./lib/db/
-COPY lib/types/package.json        ./lib/types/
+COPY apps/api/package.json  ./apps/api/
+COPY lib/db/package.json    ./lib/db/
 
-# Install all dependencies (frozen for reproducibility)
+# Install all dependencies
 RUN pnpm install --frozen-lockfile
 
-# Copy full source
+# Copy source
 COPY . .
 
-# Compile TypeScript → dist/
+# 1. Compile lib/db → lib/db/dist  (apps/api depends on @viralix/db)
+RUN pnpm --filter @viralix/db run build
+
+# 2. Compile apps/api → apps/api/dist
 RUN pnpm --filter @viralix/api run build
 
 # ---------------------------------------------------------------------------
-# Runtime image — smaller footprint
+# Runtime image
 # ---------------------------------------------------------------------------
 FROM node:22-alpine
 
@@ -29,21 +30,17 @@ WORKDIR /app
 
 RUN corepack enable && corepack prepare pnpm@9.15.9 --activate
 
-# Copy workspace manifests
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
-COPY apps/api/package.json         ./apps/api/
-COPY lib/db/package.json           ./lib/db/
-COPY lib/types/package.json        ./lib/types/
+COPY apps/api/package.json  ./apps/api/
+COPY lib/db/package.json    ./lib/db/
 
 # Production deps only
 RUN pnpm install --frozen-lockfile --prod
 
-# Copy compiled output from builder
-COPY --from=builder /app/apps/api/dist ./apps/api/dist
-COPY --from=builder /app/lib/db/dist   ./lib/db/dist
-COPY --from=builder /app/lib/types/dist ./lib/types/dist
+# Compiled output
+COPY --from=builder /app/apps/api/dist  ./apps/api/dist
+COPY --from=builder /app/lib/db/dist    ./lib/db/dist
 
-# Non-root user for security
 RUN addgroup -S viralix && adduser -S viralix -G viralix
 USER viralix
 

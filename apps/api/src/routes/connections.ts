@@ -76,7 +76,7 @@ function buildRedirectUri(platform: string): string {
 
 // GET /api/workspaces/:workspaceId/connections
 router.get('/', requireAuth, async (req: Request, res: Response) => {
-  const { workspaceId } = req.params
+  const workspaceId = req.params.workspaceId as string
   await assertMember(req.user!.id, workspaceId)
 
   const connections = await db
@@ -87,9 +87,7 @@ router.get('/', requireAuth, async (req: Request, res: Response) => {
       accountName: platformConnections.accountName,
       isActive: platformConnections.isActive,
       tokenExpiresAt: platformConnections.tokenExpiresAt,
-      scopes: platformConnections.scopes,
-      createdAt: platformConnections.createdAt,
-      updatedAt: platformConnections.updatedAt,
+      connectedAt: platformConnections.connectedAt,
     })
     .from(platformConnections)
     .where(eq(platformConnections.workspaceId, workspaceId))
@@ -99,7 +97,8 @@ router.get('/', requireAuth, async (req: Request, res: Response) => {
 
 // GET /api/workspaces/:workspaceId/connections/:platform/oauth-url
 router.get('/:platform/oauth-url', requireAuth, async (req: Request, res: Response) => {
-  const { workspaceId, platform } = req.params
+  const workspaceId = req.params.workspaceId as string
+  const platform = req.params.platform as string
   await assertMember(req.user!.id, workspaceId)
 
   const redirectUri = buildRedirectUri(platform)
@@ -120,7 +119,8 @@ router.get('/:platform/oauth-url', requireAuth, async (req: Request, res: Respon
 
 // POST /api/workspaces/:workspaceId/connections/:platform/callback
 router.post('/:platform/callback', requireAuth, async (req: Request, res: Response) => {
-  const { workspaceId, platform } = req.params
+  const workspaceId = req.params.workspaceId as string
+  const platform = req.params.platform as string
   await assertMember(req.user!.id, workspaceId)
 
   const { code } = req.body as { code: string }
@@ -168,7 +168,7 @@ router.post('/:platform/callback', requireAuth, async (req: Request, res: Respon
     : null
 
   // Fetch account info
-  let accountId: string | null = null
+  let accountId: string = ''
   let accountName: string | null = null
 
   try {
@@ -212,7 +212,7 @@ router.post('/:platform/callback', requireAuth, async (req: Request, res: Respon
   const existing = await db
     .select()
     .from(platformConnections)
-    .where(and(eq(platformConnections.workspaceId, workspaceId), eq(platformConnections.platform, platform)))
+    .where(and(eq(platformConnections.workspaceId, workspaceId), eq(platformConnections.platform, platform as SupportedPlatform)))
     .limit(1)
 
   let connection
@@ -223,11 +223,9 @@ router.post('/:platform/callback', requireAuth, async (req: Request, res: Respon
         accessToken: tokenData.access_token,
         refreshToken: tokenData.refresh_token ?? null,
         tokenExpiresAt: expiresAt,
-        accountId,
+        accountId: accountId || existing[0].accountId,
         accountName,
         isActive: true,
-        scopes: oauthCfg.scopes,
-        updatedAt: new Date(),
       })
       .where(eq(platformConnections.id, existing[0].id))
       .returning()
@@ -236,14 +234,13 @@ router.post('/:platform/callback', requireAuth, async (req: Request, res: Respon
       .insert(platformConnections)
       .values({
         workspaceId,
-        platform,
+        platform: platform as SupportedPlatform,
         accessToken: tokenData.access_token,
         refreshToken: tokenData.refresh_token ?? null,
         tokenExpiresAt: expiresAt,
-        accountId,
+        accountId: accountId || 'unknown',
         accountName,
         isActive: true,
-        scopes: oauthCfg.scopes,
       })
       .returning()
   }
@@ -256,13 +253,14 @@ router.post('/:platform/callback', requireAuth, async (req: Request, res: Respon
     accountName: connection.accountName,
     isActive: connection.isActive,
     tokenExpiresAt: connection.tokenExpiresAt,
-    createdAt: connection.createdAt,
+    connectedAt: connection.connectedAt,
   })
 })
 
 // DELETE /api/workspaces/:workspaceId/connections/:id
 router.delete('/:id', requireAuth, async (req: Request, res: Response) => {
-  const { workspaceId, id } = req.params
+  const workspaceId = req.params.workspaceId as string
+  const id = req.params.id as string
   await assertMember(req.user!.id, workspaceId)
 
   const [connection] = await db
@@ -280,7 +278,8 @@ router.delete('/:id', requireAuth, async (req: Request, res: Response) => {
 
 // POST /api/workspaces/:workspaceId/connections/:id/refresh
 router.post('/:id/refresh', requireAuth, async (req: Request, res: Response) => {
-  const { workspaceId, id } = req.params
+  const workspaceId = req.params.workspaceId as string
+  const id = req.params.id as string
   await assertMember(req.user!.id, workspaceId)
 
   const [connection] = await db
@@ -316,7 +315,6 @@ router.post('/:id/refresh', requireAuth, async (req: Request, res: Response) => 
       accessToken: tokenData.access_token,
       refreshToken: tokenData.refresh_token ?? connection.refreshToken,
       tokenExpiresAt: expiresAt,
-      updatedAt: new Date(),
     })
     .where(eq(platformConnections.id, id))
     .returning()

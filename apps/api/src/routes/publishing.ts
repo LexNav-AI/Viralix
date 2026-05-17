@@ -1,13 +1,15 @@
 import { Router, Request, Response } from 'express'
 import { z } from 'zod'
 import { and, eq, desc, gte, lte } from 'drizzle-orm'
-import { db, scheduledPosts, ads, workspaceMembers, platformConnections } from '../db'
+import { db, scheduledPosts, ads, workspaceMembers } from '../db'
 import { requireAuth } from '../middleware/auth'
 import { validate } from '../middleware/validate'
 import { AppError } from '../middleware/error-handler'
 import { publish } from '../services/publisher'
 
 const router = Router({ mergeParams: true })
+
+type ScheduledPostPlatform = 'facebook' | 'instagram' | 'tiktok' | 'linkedin' | 'twitter'
 
 async function assertMember(userId: string, workspaceId: string): Promise<void> {
   const [m] = await db
@@ -30,7 +32,7 @@ router.post(
     }),
   ),
   async (req: Request, res: Response) => {
-    const { workspaceId } = req.params
+    const workspaceId = req.params.workspaceId as string
     await assertMember(req.user!.id, workspaceId)
 
     const { adId, platform, scheduledAt } = req.body as { adId: string; platform: string; scheduledAt: string }
@@ -49,7 +51,7 @@ router.post(
       .values({
         workspaceId,
         adId,
-        platform,
+        platform: platform as ScheduledPostPlatform,
         scheduledAt: new Date(scheduledAt),
         status: 'scheduled',
       })
@@ -61,7 +63,7 @@ router.post(
 
 // GET /api/workspaces/:workspaceId/publishing/scheduled
 router.get('/scheduled', requireAuth, async (req: Request, res: Response) => {
-  const { workspaceId } = req.params
+  const workspaceId = req.params.workspaceId as string
   await assertMember(req.user!.id, workspaceId)
 
   const now = new Date()
@@ -86,7 +88,8 @@ router.get('/scheduled', requireAuth, async (req: Request, res: Response) => {
 
 // DELETE /api/workspaces/:workspaceId/publishing/scheduled/:id
 router.delete('/scheduled/:id', requireAuth, async (req: Request, res: Response) => {
-  const { workspaceId, id } = req.params
+  const workspaceId = req.params.workspaceId as string
+  const id = req.params.id as string
   await assertMember(req.user!.id, workspaceId)
 
   const [post] = await db
@@ -100,7 +103,7 @@ router.delete('/scheduled/:id', requireAuth, async (req: Request, res: Response)
 
   await db
     .update(scheduledPosts)
-    .set({ status: 'cancelled', cancelledAt: new Date() })
+    .set({ status: 'cancelled' })
     .where(eq(scheduledPosts.id, id))
 
   res.json({ success: true })
@@ -112,7 +115,7 @@ router.post(
   requireAuth,
   validate(z.object({ adId: z.string().uuid(), platform: z.string() })),
   async (req: Request, res: Response) => {
-    const { workspaceId } = req.params
+    const workspaceId = req.params.workspaceId as string
     await assertMember(req.user!.id, workspaceId)
 
     const { adId, platform } = req.body as { adId: string; platform: string }
@@ -132,7 +135,7 @@ router.post(
       .values({
         workspaceId,
         adId,
-        platform,
+        platform: platform as ScheduledPostPlatform,
         scheduledAt: new Date(),
         status: 'scheduled',
       })
@@ -149,7 +152,7 @@ router.post(
 
 // GET /api/workspaces/:workspaceId/publishing/history
 router.get('/history', requireAuth, async (req: Request, res: Response) => {
-  const { workspaceId } = req.params
+  const workspaceId = req.params.workspaceId as string
   await assertMember(req.user!.id, workspaceId)
 
   const page = Math.max(1, parseInt(req.query.page as string) || 1)

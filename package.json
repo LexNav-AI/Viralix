@@ -3,7 +3,7 @@
   "private": true,
   "scripts": {
     "dev": "pnpm --parallel --filter './apps/*' dev",
-    "build": "pnpm --recursive run build",
+    "build": "pnpm --filter @viralix/db build && pnpm --recursive --filter '!@viralix/db' run build",
     "db:push": "pnpm --filter @viralix/api run db:push",
     "db:migrate": "pnpm --filter @viralix/api run db:migrate"
   },

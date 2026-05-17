@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express'
 import { z } from 'zod'
 import { and, eq } from 'drizzle-orm'
-import multer from 'multer'
+import { multer } from '../lib/stubs'
 import path from 'path'
 import fs from 'fs'
 import { db, brandAssets, brandVoices, workspaceMembers, modelFineTunes } from '../db'
@@ -18,8 +18,10 @@ const uploadDir = path.join(process.cwd(), 'uploads', 'brand-assets')
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true })
 
 const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => cb(null, uploadDir),
-  filename: (_req, file, cb) => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  destination: (_req: any, _file: any, cb: any) => cb(null, uploadDir),
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  filename: (_req: any, file: any, cb: any) => {
     const unique = `${Date.now()}-${Math.round(Math.random() * 1e9)}`
     cb(null, `${unique}${path.extname(file.originalname)}`)
   },
@@ -49,21 +51,21 @@ async function assertMember(userId: string, workspaceId: string): Promise<void> 
 
 // GET /api/workspaces/:workspaceId/brand/assets
 router.get('/assets', requireAuth, async (req: Request, res: Response) => {
-  const { workspaceId } = req.params
+  const workspaceId = req.params.workspaceId as string
   await assertMember(req.user!.id, workspaceId)
 
   const assets = await db
     .select()
     .from(brandAssets)
     .where(eq(brandAssets.workspaceId, workspaceId))
-    .orderBy(brandAssets.createdAt)
+    .orderBy(brandAssets.uploadedAt)
 
   res.json(assets)
 })
 
 // POST /api/workspaces/:workspaceId/brand/assets
 router.post('/assets', requireAuth, upload.single('file'), async (req: Request, res: Response) => {
-  const { workspaceId } = req.params
+  const workspaceId = req.params.workspaceId as string
   await assertMember(req.user!.id, workspaceId)
 
   if (!req.file) throw new AppError(400, 'No file uploaded', 'NO_FILE')
@@ -73,15 +75,18 @@ router.post('/assets', requireAuth, upload.single('file'), async (req: Request, 
       ? `https://${config.s3Bucket}.s3.${config.awsRegion}.amazonaws.com/brand-assets/${req.file.filename}`
       : `/uploads/brand-assets/${req.file.filename}`
 
+  const mimeType: string = req.file.mimetype
+  const assetType = mimeType.startsWith('video') ? 'video' : 'image'
+
   const [asset] = await db
     .insert(brandAssets)
     .values({
       workspaceId,
-      filename: req.file.originalname,
+      name: req.file.originalname,
       fileUrl,
-      mimeType: req.file.mimetype,
-      sizeBytes: req.file.size,
-      assetType: req.file.mimetype.startsWith('video') ? 'video' : 'image',
+      mimeType,
+      fileSize: req.file.size,
+      type: assetType as 'image' | 'logo' | 'font' | 'color_palette' | 'document',
     })
     .returning()
 
@@ -90,7 +95,8 @@ router.post('/assets', requireAuth, upload.single('file'), async (req: Request, 
 
 // DELETE /api/workspaces/:workspaceId/brand/assets/:id
 router.delete('/assets/:id', requireAuth, async (req: Request, res: Response) => {
-  const { workspaceId, id } = req.params
+  const workspaceId = req.params.workspaceId as string
+  const id = req.params.id as string
   await assertMember(req.user!.id, workspaceId)
 
   const [asset] = await db
@@ -108,7 +114,7 @@ router.delete('/assets/:id', requireAuth, async (req: Request, res: Response) =>
 
 // GET /api/workspaces/:workspaceId/brand/voice
 router.get('/voice', requireAuth, async (req: Request, res: Response) => {
-  const { workspaceId } = req.params
+  const workspaceId = req.params.workspaceId as string
   await assertMember(req.user!.id, workspaceId)
 
   const [voice] = await db
@@ -122,7 +128,7 @@ router.get('/voice', requireAuth, async (req: Request, res: Response) => {
 
 // POST /api/workspaces/:workspaceId/brand/voice
 router.post('/voice', requireAuth, validate(voiceSchema), async (req: Request, res: Response) => {
-  const { workspaceId } = req.params
+  const workspaceId = req.params.workspaceId as string
   await assertMember(req.user!.id, workspaceId)
 
   const { tone, keywords, forbiddenWords, sampleCopy } = req.body as z.infer<typeof voiceSchema>
@@ -130,12 +136,12 @@ router.post('/voice', requireAuth, validate(voiceSchema), async (req: Request, r
   // Deactivate existing voices
   await db
     .update(brandVoices)
-    .set({ isActive: false, updatedAt: new Date() })
+    .set({ isActive: false })
     .where(eq(brandVoices.workspaceId, workspaceId))
 
   const [voice] = await db
     .insert(brandVoices)
-    .values({ workspaceId, tone, keywords, forbiddenWords, sampleCopy, isActive: true })
+    .values({ workspaceId, name: tone, tone: tone as 'professional' | 'casual' | 'bold' | 'playful' | 'luxurious' | 'minimalist', keywords, forbiddenWords, sampleCopy, isActive: true })
     .returning()
 
   res.status(201).json(voice)
@@ -143,7 +149,7 @@ router.post('/voice', requireAuth, validate(voiceSchema), async (req: Request, r
 
 // POST /api/workspaces/:workspaceId/brand/voice/train
 router.post('/voice/train', requireAuth, async (req: Request, res: Response) => {
-  const { workspaceId } = req.params
+  const workspaceId = req.params.workspaceId as string
   await assertMember(req.user!.id, workspaceId)
 
   if (!config.finetuneEnabled) {
@@ -166,7 +172,7 @@ router.post('/voice/train', requireAuth, async (req: Request, res: Response) => 
   // Create a fine-tune record
   const [fineTune] = await db
     .insert(modelFineTunes)
-    .values({ workspaceId, status: 'pending' })
+    .values({ workspaceId, status: 'pending', modelType: 'llama' })
     .returning()
 
   res.status(202).json({ jobId: job.id, fineTuneId: fineTune.id })
@@ -174,7 +180,7 @@ router.post('/voice/train', requireAuth, async (req: Request, res: Response) => 
 
 // GET /api/workspaces/:workspaceId/brand/voice/status
 router.get('/voice/status', requireAuth, async (req: Request, res: Response) => {
-  const { workspaceId } = req.params
+  const workspaceId = req.params.workspaceId as string
   await assertMember(req.user!.id, workspaceId)
 
   const [fineTune] = await db

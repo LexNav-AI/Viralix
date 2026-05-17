@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express'
 import { z } from 'zod'
-import { and, eq, isNull } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { db, workspaces, workspaceMembers, brandVoices, platformConnections } from '../db'
 import { requireAuth } from '../middleware/auth'
 import { validate } from '../middleware/validate'
@@ -28,7 +28,7 @@ router.get('/', requireAuth, async (req: Request, res: Response) => {
     .select({ workspace: workspaces })
     .from(workspaceMembers)
     .innerJoin(workspaces, eq(workspaceMembers.workspaceId, workspaces.id))
-    .where(and(eq(workspaceMembers.userId, userId), isNull(workspaces.deletedAt)))
+    .where(eq(workspaceMembers.userId, userId))
 
   res.json(rows.map((r) => r.workspace))
 })
@@ -38,9 +38,11 @@ router.post('/', requireAuth, validate(createSchema), async (req: Request, res: 
   const { name, industry, targetAudience } = req.body as z.infer<typeof createSchema>
   const userId = req.user!.id
 
+  const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') + '-' + Date.now()
+
   const [workspace] = await db
     .insert(workspaces)
-    .values({ name, industry, targetAudience, ownerId: userId })
+    .values({ name, slug, industry, targetAudience, userId })
     .returning()
 
   await db.insert(workspaceMembers).values({
@@ -54,7 +56,7 @@ router.post('/', requireAuth, validate(createSchema), async (req: Request, res: 
 
 // GET /api/workspaces/:id
 router.get('/:id', requireAuth, async (req: Request, res: Response) => {
-  const { id } = req.params
+  const id = req.params.id as string
   const userId = req.user!.id
 
   await assertMember(userId, id)
@@ -62,7 +64,7 @@ router.get('/:id', requireAuth, async (req: Request, res: Response) => {
   const [workspace] = await db
     .select()
     .from(workspaces)
-    .where(and(eq(workspaces.id, id), isNull(workspaces.deletedAt)))
+    .where(eq(workspaces.id, id))
     .limit(1)
 
   if (!workspace) throw new AppError(404, 'Workspace not found', 'NOT_FOUND')
@@ -83,13 +85,13 @@ router.get('/:id', requireAuth, async (req: Request, res: Response) => {
 
 // PUT /api/workspaces/:id
 router.put('/:id', requireAuth, validate(updateSchema), async (req: Request, res: Response) => {
-  const { id } = req.params
+  const id = req.params.id as string
   const userId = req.user!.id
 
   await assertMember(userId, id)
 
   const { name, industry, targetAudience } = req.body as z.infer<typeof updateSchema>
-  const updates: Partial<typeof workspaces.$inferInsert> = { updatedAt: new Date() }
+  const updates: Partial<typeof workspaces.$inferInsert> = {}
   if (name !== undefined) updates.name = name
   if (industry !== undefined) updates.industry = industry
   if (targetAudience !== undefined) updates.targetAudience = targetAudience
@@ -102,14 +104,14 @@ router.put('/:id', requireAuth, validate(updateSchema), async (req: Request, res
 
 // DELETE /api/workspaces/:id
 router.delete('/:id', requireAuth, async (req: Request, res: Response) => {
-  const { id } = req.params
+  const id = req.params.id as string
   const userId = req.user!.id
 
   const [workspace] = await db.select().from(workspaces).where(eq(workspaces.id, id)).limit(1)
   if (!workspace) throw new AppError(404, 'Workspace not found', 'NOT_FOUND')
-  if (workspace.ownerId !== userId) throw new AppError(403, 'Only the owner can delete this workspace', 'FORBIDDEN')
+  if (workspace.userId !== userId) throw new AppError(403, 'Only the owner can delete this workspace', 'FORBIDDEN')
 
-  await db.update(workspaces).set({ deletedAt: new Date() }).where(eq(workspaces.id, id))
+  await db.delete(workspaces).where(eq(workspaces.id, id))
 
   res.json({ success: true })
 })

@@ -102,7 +102,7 @@ export async function publish(scheduledPostId: string): Promise<void> {
 
     await db
       .update(ads)
-      .set({ status: 'published', updatedAt: new Date() })
+      .set({ status: 'published' })
       .where(eq(ads.id, ad.id))
 
     console.log(`[Publisher] Post ${scheduledPostId} published to ${post.platform} — external ID: ${externalPostId}`)

@@ -2,7 +2,10 @@
   "name": "@viralix/db",
   "version": "0.1.0",
   "private": true,
+  "main": "./dist/schema.js",
+  "types": "./dist/schema.d.ts",
   "scripts": {
+    "build": "tsc",
     "generate": "drizzle-kit generate",
     "migrate": "tsx migrate.ts",
     "typecheck": "tsc --noEmit"
@@ -19,7 +22,9 @@
     "@types/node": "catalog:"
   },
   "exports": {
-    ".": "./schema.ts",
-    "./migrate": "./migrate.ts"
+    ".": {
+      "require": "./dist/schema.js",
+      "types": "./dist/schema.d.ts"
+    }
   }
 }

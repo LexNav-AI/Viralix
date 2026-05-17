@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express'
-import jwt from 'jsonwebtoken'
+import { jwt } from '../lib/stubs'
 import { config } from '../config'
 
 export interface AuthenticatedUser {
@@ -27,7 +27,8 @@ export function requireAuth(req: Request, res: Response, next: NextFunction): vo
   const token = authHeader.slice(7)
 
   try {
-    const payload = jwt.verify(token, config.jwtSecret) as AuthenticatedUser & jwt.JwtPayload
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const payload = jwt.verify(token, config.jwtSecret) as AuthenticatedUser & Record<string, any>
     req.user = {
       id: payload.id,
       email: payload.email,

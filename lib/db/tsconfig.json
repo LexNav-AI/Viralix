@@ -3,7 +3,10 @@
   "compilerOptions": {
     "module": "commonjs",
     "moduleResolution": "node",
-    "outDir": "dist"
+    "outDir": "dist",
+    "declaration": true,
+    "declarationMap": true,
+    "isolatedModules": false
   },
-  "include": ["*.ts", "migrations"]
+  "include": ["schema.ts"]
 }

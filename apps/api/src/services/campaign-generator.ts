@@ -103,11 +103,12 @@ export async function generateAdBatch(
       .where(eq(campaignBriefs.campaignId, campaignId))
       .limit(1)
     if (cb) {
+      const demographics = cb.targetDemographics as Record<string, unknown> | null
       brief = {
         productName: cb.productName,
         productDescription: cb.productDescription,
         callToAction: cb.callToAction,
-        targetAudience: cb.targetAudience,
+        targetAudience: (demographics?.targetAudience as string) ?? 'General audience',
       }
     }
   }
@@ -147,35 +148,31 @@ export async function generateSingleAd(
     .values({
       workspaceId,
       campaignId: params.campaignId ?? null,
-      format: params.format,
-      platform: params.platform,
+      format: params.format as 'static_image' | 'carousel' | 'video' | 'story' | 'reel' | 'banner_300x250' | 'banner_728x90' | 'banner_160x600',
+      platform: (params.platform === 'youtube' || params.platform === 'pinterest' ? 'universal' : params.platform) as 'facebook' | 'instagram' | 'tiktok' | 'linkedin' | 'twitter' | 'universal',
       status: 'generating',
     })
     .returning()
 
-  // Create generation job record
+  // Create generation job record — extra fields stored in payload JSONB
   const [job] = await db
     .insert(generationJobs)
     .values({
       workspaceId,
-      campaignId: params.campaignId ?? null,
-      adId: ad.id,
-      format: params.format,
-      platform: params.platform,
-      brief: params.brief,
-      status: 'pending',
+      jobType: 'ad_copy',
+      status: 'queued',
+      payload: {
+        adId: ad.id,
+        campaignId: params.campaignId ?? null,
+        format: params.format,
+        platform: params.platform,
+        brief: params.brief,
+      },
     })
     .returning()
 
-  // Link ad to job
-  await db
-    .update(ads)
-    .set({ generationJobId: job.id })
-    .where(eq(ads.id, ad.id))
-
   // Enqueue BullMQ job
   const spec = FORMAT_SPECS[params.format]
-  const timeout = spec.isVideo ? 10 * 60 * 1000 : 2 * 60 * 1000
   await generationQueue.add(
     'generate-ad',
     { jobId: job.id },
@@ -201,22 +198,29 @@ export async function processAdGenerationJob(jobId: string): Promise<void> {
   if (!job) throw new Error(`Generation job not found: ${jobId}`)
   if (job.status === 'completed') return
 
-  // Mark as started
-  await db
-    .update(generationJobs)
-    .set({ status: 'writing_copy', startedAt: new Date() })
-    .where(eq(generationJobs.id, jobId))
-
-  try {
-    const brief = job.brief as {
+  const jobPayload = job.payload as {
+    adId: string
+    format: string
+    platform: string
+    brief: {
       productName: string
       productDescription: string
       callToAction: string
       targetAudience: string
     }
+  }
 
-    const format = job.format as AdFormat
-    const spec = FORMAT_SPECS[format] ?? { width: 1080, height: 1080, isVideo: false, platform: job.platform }
+  // Mark as started
+  await db
+    .update(generationJobs)
+    .set({ status: 'running', startedAt: new Date() })
+    .where(eq(generationJobs.id, jobId))
+
+  try {
+    const brief = jobPayload.brief
+    const format = jobPayload.format as AdFormat
+    const jobPlatform = jobPayload.platform
+    const spec = FORMAT_SPECS[format] ?? { width: 1080, height: 1080, isVideo: false, platform: jobPlatform }
 
     // 2. Load brand voice
     const [voice] = await db
@@ -233,11 +237,11 @@ export async function processAdGenerationJob(jobId: string): Promise<void> {
 
     // 4. Generate ad copy
     const copyRequest: llamaClient.AdCopyRequest = {
-      format: job.format,
-      platform: job.platform,
+      format,
+      platform: jobPlatform,
       productName: brief.productName,
       productDescription: brief.productDescription,
-      tone: voice?.tone ?? 'professional',
+      tone: (voice?.tone as string) ?? 'professional',
       keywords: (voice?.keywords as string[]) ?? [],
       forbiddenWords: (voice?.forbiddenWords as string[]) ?? [],
       callToAction: brief.callToAction,
@@ -253,16 +257,11 @@ export async function processAdGenerationJob(jobId: string): Promise<void> {
 
     if (!spec.isVideo) {
       // 5a. Generate static image
-      await db
-        .update(generationJobs)
-        .set({ status: 'generating_image' })
-        .where(eq(generationJobs.id, jobId))
-
-      const imgPrompt = `High-quality advertising visual for "${brief.productName}". ${brief.productDescription}. Style: photorealistic, professional ad photography. Platform: ${job.platform}.`
+      const imgPrompt = `High-quality advertising visual for "${brief.productName}". ${brief.productDescription}. Style: photorealistic, professional ad photography. Platform: ${jobPlatform}.`
       const img = await sdClient.generateImage({
         prompt: imgPrompt,
         negativePrompt: 'blurry, low quality, watermark, text overlay, distorted',
-        format: job.format,
+        format,
         width: spec.width,
         height: spec.height,
         style: 'photorealistic',
@@ -270,12 +269,7 @@ export async function processAdGenerationJob(jobId: string): Promise<void> {
       imageUrl = img.imageUrl
     } else {
       // 5b. Generate video
-      await db
-        .update(generationJobs)
-        .set({ status: 'generating_image' })
-        .where(eq(generationJobs.id, jobId))
-
-      const videoPrompt = `Cinematic advertising video for "${brief.productName}". ${brief.productDescription}. Professional, eye-catching, ${job.platform} style.`
+      const videoPrompt = `Cinematic advertising video for "${brief.productName}". ${brief.productDescription}. Professional, eye-catching, ${jobPlatform} style.`
       const vid = await cogvideoClient.generateVideo({
         prompt: videoPrompt,
         duration: 6,
@@ -287,11 +281,6 @@ export async function processAdGenerationJob(jobId: string): Promise<void> {
       thumbnailUrl = vid.thumbnailUrl
 
       // 6. Generate TTS voiceover
-      await db
-        .update(generationJobs)
-        .set({ status: 'adding_audio' })
-        .where(eq(generationJobs.id, jobId))
-
       const voiceoverText = `${copy.headline}. ${copy.bodyText} ${copy.ctaText}`
       const tts = await ttsClient.generateVoiceover({
         text: voiceoverText,
@@ -302,11 +291,6 @@ export async function processAdGenerationJob(jobId: string): Promise<void> {
       audioUrl = tts.audioUrl
 
       // 7. Mux voiceover into video
-      await db
-        .update(generationJobs)
-        .set({ status: 'compositing' })
-        .where(eq(generationJobs.id, jobId))
-
       const assembled = await ffmpegClient.addVoiceover(videoUrl, audioUrl)
       videoUrl = assembled.videoUrl
     }
@@ -323,9 +307,8 @@ export async function processAdGenerationJob(jobId: string): Promise<void> {
         thumbnailUrl,
         audioUrl,
         status: 'ready',
-        updatedAt: new Date(),
       })
-      .where(eq(ads.id, job.adId!))
+      .where(eq(ads.id, jobPayload.adId))
 
     // 9. Mark job completed
     await db
@@ -341,11 +324,11 @@ export async function processAdGenerationJob(jobId: string): Promise<void> {
       .set({ status: 'failed', errorMessage: message })
       .where(eq(generationJobs.id, jobId))
 
-    if (job.adId) {
+    if (jobPayload.adId) {
       await db
         .update(ads)
-        .set({ status: 'failed', updatedAt: new Date() })
-        .where(eq(ads.id, job.adId))
+        .set({ status: 'failed' })
+        .where(eq(ads.id, jobPayload.adId))
     }
 
     throw err

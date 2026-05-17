@@ -1,6 +1,5 @@
 import { Router, Request, Response } from 'express'
-import bcrypt from 'bcryptjs'
-import jwt from 'jsonwebtoken'
+import { bcrypt, jwt } from '../lib/stubs'
 import { z } from 'zod'
 import { eq } from 'drizzle-orm'
 import { db, users, workspaces, workspaceMembers, sessions } from '../db'
@@ -40,9 +39,11 @@ router.post('/register', validate(registerSchema), async (req: Request, res: Res
   const [user] = await db.insert(users).values({ email, passwordHash, name }).returning()
 
   // Create default workspace
+  const wsName = `${name}'s Workspace`
+  const slug = wsName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') + '-' + Date.now()
   const [workspace] = await db
     .insert(workspaces)
-    .values({ name: `${name}'s Workspace`, ownerId: user.id })
+    .values({ name: wsName, slug, userId: user.id })
     .returning()
 
   await db.insert(workspaceMembers).values({
@@ -78,7 +79,7 @@ router.post('/login', validate(loginSchema), async (req: Request, res: Response)
   const [workspace] = await db
     .select()
     .from(workspaces)
-    .where(eq(workspaces.ownerId, user.id))
+    .where(eq(workspaces.userId, user.id))
     .limit(1)
 
   const workspaceId = workspace?.id ?? ''

@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express'
 import { ZodError } from 'zod'
-import jwt from 'jsonwebtoken'
+import { jwt } from '../lib/stubs'
 
 export function errorHandler(
   err: unknown,

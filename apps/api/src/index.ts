@@ -44,6 +44,8 @@ app.use('/api/ads', scraperAdsRouter)
 app.use('/api/schedule', scheduleRouter)
 app.use('/api/ad-analytics', adAnalyticsRouter)
 
+// Both paths needed: /health for ECS health checks, /api/health for app-level checks
+app.get('/health', (_req, res) => res.json({ ok: true, version: '2.0' }))
 app.get('/api/health', (_req, res) => res.json({ ok: true, version: '2.0' }))
 
 app.listen(config.port, () => {
